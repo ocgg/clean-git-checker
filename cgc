@@ -1,93 +1,115 @@
 #!/bin/bash
 
-ROOT=$(realpath "$(dirname "$0")")
+ROOT=$(dirname "$(realpath "$0")")
 REPOS_FILE_NAME="repos_to_check.txt"
 REPOS_FILE_PATH="$ROOT/$REPOS_FILE_NAME"
 WARNINGS=()
 
+RED="\e[0;31m"
+YELLOW="\e[0;33m"
+GREEN="\e[0;32m"
+BOLD="\e[1;m"
+NC="\e[0m"
+
+USER_EXIT_CODE=33
+
 print_warning() {
-    printf "\e[0;33mWARNING: %s\e[0m\n" "$1" >&2
+    echo -e "${YELLOW}WARNING: $1${NC}" >&2
 }
 
 print_warnings() {
     echo
-    printf "\e[1;m%s contains errors!\e[0m\n" "$REPOS_FILE_NAME"
     for message in "${WARNINGS[@]}"; do
         print_warning "$message"
     done
-    printf "Check it at: \e]8;;%s\e\\%s\e]8;;\e\\\\\n" "$ROOT" "$ROOT"
+    echo -e "${BOLD}$REPOS_FILE_NAME contains errors!${NC}"
+    echo -e "Check it at: \e]8;;$REPOS_FILE_PATH\e\\$REPOS_FILE_PATH\e]8;;\e\\"
 }
 
-show_menu() {
-    echo "diff [d] | commit [c] | goto [cd] | ignore [i] or quit [q] ?"
+add_warning() {
+    WARNINGS+=("$1")
 }
 
-if [ ! -f "$REPOS_FILE_PATH" ]; then
-    print_warning "File not found: $ROOT/$REPOS_FILE_NAME"
-    echo "Creating empty file."
-    touch "$ROOT/$REPOS_FILE_NAME"
-    echo "Please provide paths to git directories to check in that file, one path a line, and retry."
-    exit 1
-fi
+check_repo_file() {
+    [ -f "$REPOS_FILE_PATH" ] && return 0
 
-# if file dont exist, exit with error "file not found: repos_to_check (should be in $ROOT)"
-# if file empty, exit with error "no path provided"
+    print_warning "Repo list file not found: $REPOS_FILE_PATH"
+    touch "$REPOS_FILE_PATH"
+    {
+        echo "# - Lines beginning with '#' are ignored";
+        echo "# - Empty lines are ignored";
+        echo "# - Write absolute paths to your repos, one per line"
+    } >> "$REPOS_FILE_PATH"
+    echo
+    echo "Please provide absolute paths to git directories in that file, one path a line, and retry."
+    return 1
+}
 
-# For each path, check if exists
-# if path dont exist, print a warning skipping it
-# if path exist,
-    # cd path
-    # git status --porcelain
-    # if clean, skip
-    # if unclean, print "UNCLEAN: [repo name]", then git status, and ask:
-    # diff (& loop) | commit | exit & cd | quit
-
-# if no unclean repo found, exit with status code OK
-
-while IFS= read -r dir; do
-    if [ ! -d "$dir" ]; then
-        WARNINGS+=("Directory not found: $dir")
-        continue;
+check_repo_dir() {
+    if [[ -z "$1" || "$1" =~ ^# ]]; then
+        return 1
+    elif [ ! -d "$1" ]; then
+        add_warning "Directory not found: $1"
+        return 1
+    elif ! git -C "$1" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+        add_warning "Not a git repository: $1"
+        return 1
     fi
+    return 0
+}
 
-    pushd "$dir" > /dev/null || exit
 
-    if ! git rev-parse > /dev/null 2>&1; then
-        WARNINGS+=("Not a git repository: $dir")
-    elif [ -n "$(git status --porcelain)" ]; then
-        printf "\e[0;31mUNCLEAN: %s\e[0m\n\n" "$dir";
-        git status --short
-        echo
-        while true; do
-            show_menu
-            action=""
-            read -r -p "> " action < /dev/tty
-            case "$action" in
-                d) git diff;;
-                c)
-                    read -r -p "Message: " msg < /dev/tty
-                    git add --all
-                    git commit -m "$msg" && echo "Committed."
-                    break
-                    ;;
-                cd)
-                    echo
-                    printf "\e[1;32mOpening %s in a new session...\e[0m\n" "$dir"
-                    printf "\e[1;32m'exit' or ctrl+d to come back.\e[0m\n"
-                    echo
-                    cd "$dir" || exit
-                    $SHELL -i < /dev/tty
-                    echo
-                    printf "\e[1;32mBack to clean git checker...\e[0m\n"
-                    break
-                    ;;
-                i) break;;
-                q) exit 0;;
-                *) ;;
-            esac
-        done
-    fi
-    popd > /dev/null || exit 2
+# NOTE: "exit" commands here just terminate the subshell from where menu() is
+# called, not the entire script.
+menu() {
+    while true; do
+        echo "[d]iff | [c]ommit | [cd] to repo | [i]gnore or [q]uit ?"
+        read -r -p "> " action < /dev/tty
+        case "$action" in
+            d) git diff;;
+
+            c)  read -r -p "Message: " msg < /dev/tty
+                git add --all
+                git commit -m "$msg" && echo "Committed." || exit 1
+                break;;
+
+            cd) echo
+                echo -e "${GREEN}Opening $1 in a new session...${NC}"
+                echo -e "${GREEN}'exit' or ctrl+d to come back.${NC}"
+                cd "$1" || exit
+                $SHELL -i
+                echo
+                echo -e "${GREEN}Back to clean git checker...${NC}"
+                break;;
+
+            i) break;;
+
+            q) exit $USER_EXIT_CODE;;
+
+            *) echo "Please type d, c, cd, i or q.";;
+        esac
+    done
+}
+
+check_repo_file || exit 1
+
+while IFS= read -r repo_dir; do
+    check_repo_dir "$repo_dir" || continue
+
+    (
+        cd "$repo_dir" || exit 2
+
+        if [ -n "$(git status --porcelain)" ]; then
+            echo -e "${BOLD}Uncommitted changes detected!"
+            echo -e "${RED}UNCLEAN: $repo_dir${NC}\n"
+            git status --short
+            echo
+            menu "$repo_dir"
+        fi
+    )
+    output_code=$?
+    [ $output_code -eq $USER_EXIT_CODE ] && exit
+    [ $output_code -eq 1 ] && exit 1
 done < "$REPOS_FILE_PATH"
 
-[ ! ${#WARNINGS[@]} -eq 0 ] && print_warnings
+[ ${#WARNINGS[@]} -ne 0 ] && print_warnings
