@@ -8,6 +8,7 @@ WARNINGS=()
 RED="\e[0;31m"
 YELLOW="\e[0;33m"
 GREEN="\e[0;32m"
+CYAN="\e[0;36m"
 BOLD="\e[1;m"
 NC="\e[0m"
 
@@ -22,8 +23,8 @@ print_warnings() {
     for message in "${WARNINGS[@]}"; do
         print_warning "$message"
     done
-    echo -e "${BOLD}$REPOS_FILE_NAME contains errors!${NC}"
-    echo -e "Check it at: \e]8;;$REPOS_FILE_PATH\e\\$REPOS_FILE_PATH\e]8;;\e\\"
+    echo -e "${BOLD}Your git directories list contains errors!${NC}"
+    echo -e "Check the file: \e]8;;$REPOS_FILE_PATH\e\\$REPOS_FILE_PATH\e]8;;\e\\"
 }
 
 add_warning() {
@@ -63,6 +64,7 @@ check_repo_dir() {
 # called, not the entire script.
 menu() {
     while true; do
+        # echo -e "${YELLOW}✗ ${CYAN}${BOLD}$(basename "$(realpath .)"):${RED}${BOLD}$(git branch --show-current)${NC}"
         echo "[d]iff | [c]ommit | [cd] to repo | [i]gnore or [q]uit ?"
         read -r -p "> " action < /dev/tty
         case "$action" in
@@ -70,7 +72,9 @@ menu() {
 
             c)  read -r -p "Message: " msg < /dev/tty
                 git add --all
-                git commit -m "$msg" && echo "Committed." || exit 1
+                git commit -m "$msg" || exit 1
+                read -r -p "Run git push ? (y/n) > " push < /dev/tty
+                [ "$push" = "y" ] && git push
                 break;;
 
             cd) echo
@@ -100,8 +104,11 @@ while IFS= read -r repo_dir; do
         cd "$repo_dir" || exit 2
 
         if [ -n "$(git status --porcelain)" ]; then
-            echo -e "${BOLD}Uncommitted changes detected!"
-            echo -e "${RED}UNCLEAN: $repo_dir${NC}\n"
+            # echo -e "${BOLD}Uncommitted changes detected!"
+            # echo -e "${RED}UNCLEAN: $repo_dir${NC}\n"
+            clear
+            echo -e " ${YELLOW}✗ ${CYAN}${BOLD}$(basename "$(realpath .)"):${RED}${BOLD}$(git branch --show-current) ${YELLOW}✗${NC}"
+            echo
             git status --short
             echo
             menu "$repo_dir"
