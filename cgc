@@ -6,10 +6,13 @@ REPOS_FILE_PATH="$ROOT/$REPOS_FILE_NAME"
 WARNINGS=()
 
 RED="\e[0;31m"
-YELLOW="\e[0;33m"
 GREEN="\e[0;32m"
+YELLOW="\e[0;33m"
+BLUE="\e[0;34m"
 CYAN="\e[0;36m"
+
 BOLD="\e[1;m"
+
 NC="\e[0m"
 
 USER_EXIT_CODE=33
@@ -23,7 +26,7 @@ print_warnings() {
     for message in "${WARNINGS[@]}"; do
         print_warning "$message"
     done
-    echo -e "${BOLD}Your git directories list contains errors!${NC}"
+    echo -e "${BOLD}Your directory list contains errors!${NC}"
     echo -e "Check the file: \e]8;;$REPOS_FILE_PATH\e\\$REPOS_FILE_PATH\e]8;;\e\\"
 }
 
@@ -59,13 +62,11 @@ check_repo_dir() {
     return 0
 }
 
-
 # NOTE: "exit" commands here just terminate the subshell from where menu() is
 # called, not the entire script.
 menu() {
     while true; do
-        # echo -e "${YELLOW}✗ ${CYAN}${BOLD}$(basename "$(realpath .)"):${RED}${BOLD}$(git branch --show-current)${NC}"
-        echo "[d]iff | [c]ommit | [cd] to repo | [i]gnore or [q]uit ?"
+        echo "[d]iff, [c]ommit, [cd] to repo, [i]gnore, [q]uit"
         read -r -p "> " action < /dev/tty
         case "$action" in
             d) git diff;;
@@ -82,15 +83,11 @@ menu() {
                 echo -e "${GREEN}'exit' or ctrl+d to come back.${NC}"
                 cd "$1" || exit
                 $SHELL -i
-                echo
-                echo -e "${GREEN}Back to clean git checker...${NC}"
                 break;;
 
             i) break;;
 
             q) exit $USER_EXIT_CODE;;
-
-            *) echo "Please type d, c, cd, i or q.";;
         esac
     done
 }
@@ -104,10 +101,10 @@ while IFS= read -r repo_dir; do
         cd "$repo_dir" || exit 2
 
         if [ -n "$(git status --porcelain)" ]; then
-            # echo -e "${BOLD}Uncommitted changes detected!"
-            # echo -e "${RED}UNCLEAN: $repo_dir${NC}\n"
             clear
-            echo -e " ${YELLOW}✗ ${CYAN}${BOLD}$(basename "$(realpath .)"):${RED}${BOLD}$(git branch --show-current) ${YELLOW}✗${NC}"
+            repo_name="${CYAN}${BOLD}$(basename "$(realpath .)")${NC}"
+            currentbranch="${BLUE}${BOLD}git:(${RED}${BOLD}$(git branch --show-current)${BLUE})${NC}"
+            echo -e " ${YELLOW}✗${NC} $repo_name $currentbranch (at: $(pwd))"
             echo
             git status --short
             echo
